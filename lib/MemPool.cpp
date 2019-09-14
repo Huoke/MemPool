@@ -1,21 +1,10 @@
-
-/*
- */
-
-#include "config.h"
-#if HAVE_ASSERT_H
 #include <assert.h>
-#endif
-
 #include "MemPool.h"
 #include "MemPoolChunked.h"
 #include "MemPoolMalloc.h"
 
-#define FLUSH_LIMIT 1000	/* Flush memPool counters to memMeters after flush limit calls */
-
-#if HAVE_STRING_H
+#define FLUSH_LIMIT 1000	/* 调用后冲洗内存池计数器到memMeters */
 #include <string.h>
-#endif
 
 /*
  * XXX This is a boundary violation between lib and src.. would be good
@@ -358,12 +347,14 @@ MemImplementingAllocator::MemImplementingAllocator(char const *aLabel, size_t aS
 {
     memPID = ++Pool_id_counter;  // 内存池id计数器
 
-    MemImplementingAllocator *last_pool;
+    MemImplementingAllocator *last_pool; // 上一个内存池
 
     assert(aLabel != NULL && aSize);
+    
     /* Append as Last */
     for (last_pool = MemPools::GetInstance().pools; last_pool && last_pool->next;)
         last_pool = last_pool->next;
+
     if (last_pool)
         last_pool->next = this;
     else

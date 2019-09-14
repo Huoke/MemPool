@@ -10,19 +10,10 @@
  *********************************************************************************************/
 #include "config.h"
 #include "util.h"
-
 #include "memMeter.h"
 #include "splay.h"
-
-#if HAVE_GNUMALLOC_H
-#include <gnumalloc.h>
-#elif HAVE_MALLOC_H
 #include <malloc.h>
-#endif
-
-#if HAVE_MEMORY_H
 #include <memory.h>
-#endif
 
 #if !M_MMAP_MAX
 #if USE_DLMALLOC
@@ -52,11 +43,10 @@
 class MemImplementingAllocator;
 class MemPoolStats;
 
-/// \ingroup MemPoolsAPI
-/// \todo Kill this typedef for C++
+// todo Kill this typedef for C++
 typedef struct _MemPoolGlobalStats MemPoolGlobalStats;
 
-/// \ingroup MemPoolsAPI
+// 内存池迭代器
 class MemPoolIterator
 {
 public:
@@ -113,19 +103,17 @@ public:
     MemImplementingAllocator* create(const char *label, size_t obj_size);
 
     /**
-     * 以字节设置内存池中可用内存的上限 Sets upper limit in bytes to amount of free ram kept in pools. 
-     * 这不是严格的设置，而是一个提示 This is not strict upper limit, but a hint. 
-     * 当超过这个上限，考虑立即释放所有空闲内存块 When MemPools are over this limit,totally free chunks are immediately considered for release. 
-     * 否则，检查长时间未使用的内存块 Otherwise，only chunks that have not been referenced for a long time are checked.
+     * 以字节设置内存池中可用内存的上限。这不是严格的设置，而是一个提示 
+     * 当超过这个上限，考虑立即释放所有空闲内存块。否则，检查长时间未使用的内存块 
      */
     void setIdleLimit(ssize_t new_idle_limit);
     ssize_t idleLimit() const;
 
     /**
-     * 主清理程序，为了保持内存池空闲上限 Main cleanup handler. For MemPools to stay within upper idle limits,
-     * 这个函数需要定期的被调用， this function needs to be called periodically, 
-     * 最好以一个恒定周期调用，比如从squid的事件调用 preferrably at some constant rate, eg. from Squid event. 
-     * 查看所有内存池和块 清理内部状态，检测可发布的块 It looks through all pools and chunks, cleans up internal states and checks for releasable chunks.
+     * 主清理程序，为了保持内存池空闲上限 
+     * 这个函数需要定期的被调用， 
+     * 最好以一个恒定周期调用，比如从squid的事件调用 
+     * 查看所有内存池和块 清理内部状态，检测可发布的块 
      *
      *在对这个函数调用期间，对象被放置到内部缓存中，而不是返回到其主块，主要是为了加速。
      *在此期间，块的状态未知，不知道块是空闲的还是正在使用中。
@@ -133,10 +121,7 @@ public:
      *
      * 频繁的调用clean, 因为它会按适当的顺序对块进行排序，减少内存碎片提高内存块的使用率
      * 根据内存使用情况，clean调用的频率在几十秒到几分钟之间
-     *
-     \todo DOCS: Re-write this shorter!
-     *
-     \param maxage: 释放所有在maxage秒内没有被引用的完全空闲内存块.
+     *param maxage: 释放所有在maxage秒内没有被引用的完全空闲内存块.
      */
     void clean(time_t maxage);
 
@@ -151,7 +136,7 @@ private:
 
 /***************************************************************
  * 内部内存池API
- * 对于大小相同的对象，一个空间不断增长的池a pool is a [growing] space for objects of the same size
+ * 对于大小相同的对象，一个空间不断增长的池
  * 内存分配器
  **************************************************************/
 class MemAllocator
@@ -179,13 +164,9 @@ public:
     int inUseCount();
 
     /**
-     * 允许设置内存池的大小。Allows you tune chunk size of pooling.
-     * 对象是在内存块中分配的而不是单独分配 Objects are allocated in chunks instead of individually.
-     * 这样可以节省内存，减少碎片 This conserves memory, reduces fragmentation.
-     * 由于内存只能以块的形式释放 Because of that memory can be freed also only in chunks. 
-     * 因此需要在内存碎片和保护内存分块之间权衡 Therefore there is tradeoff between memory conservation due to chunking and free
-     * memory fragmentation.
-     *
+     * 允许设置内存池的大小，对象是在内存块中分配的而不是单独分配 
+     * 这样可以节省内存，减少碎片由于内存只能以块的形式释放
+     * 因此需要在内存碎片和保护内存分块之间权衡 
      注意:  在内存池中，许多项目保存时间较长，原则上只增加块的大小
      */
     virtual void setChunkSize(size_t chunksize) {} // 设置块的大小
@@ -203,7 +184,6 @@ private:
 
 /******************************************************************
  * 内部内存池API
- * Support late binding of pool type for allocator agnostic classes 
  * 后期支持不区分分配器类型的内存池类型绑定
  * **************************************************************/
 class MemAllocatorProxy
@@ -234,8 +214,7 @@ private:
     mutable MemAllocator *theAllocator; // 内存分配器
 };
 
-/* help for classes */
-
+// 一下是帮助宏定义
 /*******************************************************
  * 组内部 MemPoolsAPI
  * 隐藏初始化 ，MEMPROXY_CLASS 宏用在类的声明中
@@ -285,9 +264,7 @@ public:
     /* 在内存池中分配一个块内存 */
     virtual void *alloc();
 
-    /**
-     * Free a element allocated by MemImplementingAllocator::alloc()
-     */
+    /*通过 MemImplementingAllocator::alloc()分配一个空闲元素*/
     virtual void free(void *);
 
     virtual bool idleTrigger(int shift) const = 0;
@@ -308,7 +285,6 @@ public:
     size_t obj_size;
 };
 
-/// \ingroup MemPoolsAPI
 class MemPoolStats
 {
 public:
@@ -331,8 +307,6 @@ public:
     int overhead;
 };
 
-/// \ingroup MemPoolsAPI
-/// \todo Classify and add constructor/destructor to initialize properly.
 struct _MemPoolGlobalStats {
     MemPoolMeter *TheMeter;
 

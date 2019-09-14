@@ -68,12 +68,11 @@
  */
 extern time_t squid_curtime;
 
-/* 本地原型 */
-static int memCompChunks(MemChunk * const &, MemChunk * const &);
-static int memCompObjChunks(void * const &, MemChunk * const &);
+static int memCompChunks(MemChunk* const &, MemChunk* const &);// 内存块比较
+static int memCompObjChunks(void* const &, MemChunk* const &); // 对象比较
 
 /* 内存块之间比较 */
-static int memCompChunks(MemChunk * const &chunkA, MemChunk * const &chunkB)
+static int memCompChunks(MemChunk* const &chunkA, MemChunk* const &chunkB)
 {
     if (chunkA->objCache > chunkB->objCache)
         return 1;
@@ -84,7 +83,7 @@ static int memCompChunks(MemChunk * const &chunkA, MemChunk * const &chunkB)
 }
 
 /* Compare object to chunk */
-static int memCompObjChunks(void *const &obj, MemChunk * const &chunk)
+static int memCompObjChunks(void* const &obj, MemChunk* const &chunk)
 {
     /* 对象的内存地址低于块的地址区域 */
     if (obj < chunk->objCache)
@@ -98,10 +97,10 @@ static int memCompObjChunks(void *const &obj, MemChunk * const &chunk)
 
 MemChunk::MemChunk(MemPoolChunked *aPool)
 {
-    /* 这也应该有一个内存池 should have a pool for this too -
+    /* 这也应该有一个内存池 
      * 请注意，这里要求:
-     * - 给块池的第一个块分配一个块 allocate one chunk for the pool of chunks's first chunk
-     * - 从池中分配一个块，将第一个块的内容移动到另一个块中，释放第一个块。 allocate a chunk from that pool move the contents of one chunk into the other free the first chunk.
+     * - 给块池的第一个块分配一个块 
+     * - 从池中分配一个块，将第一个块的内容移动到另一个块中，释放第一个块。 
      */
     inuse_count = 0;
     next = NULL;
@@ -161,11 +160,8 @@ MemChunk::~MemChunk()
 void MemPoolChunked::push(void *obj)
 {
     void **Free;
-    /* XXX We should figure out a sane way of avoiding having to clear
-     * all buffers. For example data buffers such as used by MemBuf do
-     * not really need to be cleared.. There was a condition based on
-     * the object size here, but such condition is not safe.
-     */
+    /*我们应该想出一个明智的方法来避免清除所有缓冲区。例如，membuf使用的数据缓冲区实际上不需要清除。
+    这里有一个基于对象大小的条件，但是这样的条件不安全。*/
     if (doZeroOnPush)
         memset(obj, 0, obj_size); // obj空间设置为0
     Free = (void **)obj;
@@ -226,16 +222,19 @@ void MemPoolChunked::createChunk()
     newChunk = new MemChunk(this);
 
     chunk = Chunks;
-    if (chunk == NULL) {	/* first chunk in pool */
+    if (chunk == NULL) {	/* 内存池中的首个内存块 */
         Chunks = newChunk;
         return;
     }
-    if (newChunk->objCache < chunk->objCache) {
-        /* we are lowest ram chunk, insert as first chunk */
+    if (newChunk->objCache < chunk->objCache) { /* 如果不是内存池中的首个内存块 
+         比较首个内存块首地址和新创建内存块首地址大小 
+         如果新创建内存块首地址小于 首个内存块地址 那就把新创建的内存块
+          作为首个内存块，原来首个内存块放在第二个上*/
         newChunk->next = chunk;
         Chunks = newChunk;
         return;
     }
+
     while (chunk->next) {
         if (newChunk->objCache < chunk->next->objCache) {
             /* new chunk is in lower ram, insert here */
@@ -274,7 +273,7 @@ void MemPoolChunked::setChunkSize(size_t chunksize)
     if (cap < 1)
         cap = 1;
 
-    csize = cap * obj_size; // 最终得出要分配多少个对象的内存大小
+    csize = cap * obj_size; // 最终计算出这块内存的大小
     csize = ((csize + MEM_PAGE_SIZE - 1) / MEM_PAGE_SIZE) * MEM_PAGE_SIZE;	/* 四舍五入到页大小 round up to page size */
     cap = csize / obj_size;
 
@@ -334,7 +333,7 @@ void MemPoolChunked::convertFreeCacheToChunkFreeCache()
      * any given Free belongs to, and stuff it into that Chunk's freelist
      */
 
-    while ((Free = freeCache) != NULL) {
+    while ((Free = freeCache) != NULL) {// 如果池中有空闲的内存
         MemChunk *chunk = NULL;
         chunk = const_cast<MemChunk *>(*allChunks.find(Free, memCompObjChunks));
         assert(splayLastResult == 0);
@@ -347,7 +346,6 @@ void MemPoolChunked::convertFreeCacheToChunkFreeCache()
         chunk->freeList = Free;
         chunk->lastref = squid_curtime;
     }
-
 }
 
 /* removes empty Chunks from pool */
