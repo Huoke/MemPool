@@ -1,14 +1,9 @@
 
-/*
- * $Id$
-/*
- * Old way:
- *   xmalloc each item separately, upon free stack into idle pool array.
- *   each item is individually malloc()ed from system, imposing libmalloc
- *   overhead, and additionally we add our overhead of pointer size per item
- *   as we keep a list of pointer to free items.
- *
- * Chunking:
+/*老方式:
+ *   在从堆栈中开辟空闲项到内存池中时，每个项目都需要调用xmalloc来开辟内存空间.
+ *   每个项目都是系统调用malloc来开辟的，这会增加系统的(libmalloc)开销, 还有 
+ *   在保留指向空闲项的指针链表时，增加了指向每个空闲项的指针的开销
+ * 块组:
  *   xmalloc Chunk that fits at least MEM_MIN_FREE (32) items in an array, but
  *   limit Chunk size to MEM_CHUNK_MAX_SIZE (256K). Chunk size is rounded up to
  *   MEM_PAGE_SIZE (4K), trying to have chunks in multiples of VM_PAGE size.
@@ -207,14 +202,16 @@ void* MemPoolChunked::get()
     chunk->lastref = squid_curtime;
 
     if (chunk->freeList == NULL) {
-        /* last free in this chunk, so remove us from perchunk freelist chain */
+        /* nextFreeChunk不为空，说明下一个内存块还有空闲内存
+        ，但是如果只空闲一块够使用了，那就让我们这块内存块的下一块内存块从内存块链表中摘出来 */
         nextFreeChunk = chunk->nextFreeChunk;
     }
     (void) VALGRIND_MAKE_MEM_DEFINED(Free, obj_size);
     return Free;
 }
 
-/* just create a new chunk and place it into a good spot in the chunk chain */
+/* 创建出一块内存，然后把它放在内存块管理链表合适的位置，原则是地址小的在链表头，以此类推
+   这里用创建好的内存块的首地址作为管理的节点，通过一个链表来管理这些节点 */
 void MemPoolChunked::createChunk()
 {
     MemChunk *chunk, *newChunk;
@@ -223,7 +220,7 @@ void MemPoolChunked::createChunk()
 
     chunk = Chunks;
     if (chunk == NULL) {	/* 内存池中的首个内存块 */
-        Chunks = newChunk;
+        Chunks = newChunk;  /* 内存块的首地址赋值给Chunks */
         return;
     }
     if (newChunk->objCache < chunk->objCache) { /* 如果不是内存池中的首个内存块 
@@ -237,14 +234,14 @@ void MemPoolChunked::createChunk()
 
     while (chunk->next) {
         if (newChunk->objCache < chunk->next->objCache) {
-            /* new chunk is in lower ram, insert here */
+            /* 新内存块首地址小于Chunk下一个内存块首地址，插入 */
             newChunk->next = chunk->next;
             chunk->next = newChunk;
             return;
         }
         chunk = chunk->next;
     }
-    /* we are the worst chunk in chain, add as last */
+    /* 如果首地址链表中所有的节点都大于新创建内存块的首地址，那就插入到最后 */
     chunk->next = newChunk;
 }
 
@@ -282,8 +279,7 @@ void MemPoolChunked::setChunkSize(size_t chunksize)
 }
 
 /*
- * warning: we do not clean this entry from Pools assuming destruction
- * is used at the end of the program only
+ * 警告：我们不会从池中清除此项，假设销毁只在程序结束时使用
  */
 MemPoolChunked::~MemPoolChunked()
 {
@@ -291,6 +287,7 @@ MemPoolChunked::~MemPoolChunked()
 
     flushMetersFull();
     clean(0);
+    // 使用的内存还不为0 是强行终止程序
     assert(meter.inuse.level == 0 && "While trying to destroy pool");
 
     chunk = Chunks;
@@ -298,12 +295,11 @@ MemPoolChunked::~MemPoolChunked()
         chunk = chunk->next;
         delete fchunk;
     }
-    /* TODO we should be doing something about the original Chunks pointer here. */
+    /* TODO 这里几个todo，我们应该对原始块指针做些什么? */
 
 }
 
-int
-MemPoolChunked::getInUseCount()
+int MemPoolChunked::getInUseCount()
 {
     return meter.inuse.level;
 }
@@ -328,43 +324,40 @@ void MemPoolChunked::deallocate(void *obj, bool aggressive)
 void MemPoolChunked::convertFreeCacheToChunkFreeCache()
 {
     void *Free;
-    /*
-     * OK, so we have to go through all the global freeCache and find the Chunk
-     * any given Free belongs to, and stuff it into that Chunk's freelist
-     */
+    /*好的，所以我们必须遍历所有全局freecache，找到任意给定free所属的块，并将其填充到该块的freelist中*/
 
     while ((Free = freeCache) != NULL) {// 如果池中有空闲的内存
         MemChunk *chunk = NULL;
-        chunk = const_cast<MemChunk *>(*allChunks.find(Free, memCompObjChunks));
+        chunk = const_cast<MemChunk *>(*allChunks.find(·, memCompObjChunks));
         assert(splayLastResult == 0);
         assert(chunk->inuse_count > 0);
         chunk->inuse_count--;
         (void) VALGRIND_MAKE_MEM_DEFINED(Free, sizeof(void *));
-        freeCache = *(void **)Free;	/* remove from global cache */
-        *(void **)Free = chunk->freeList;	/* stuff into chunks freelist */
+        freeCache = *(void **)Free;	/* 从全局freeCache中删除Free */
+        *(void **)Free = chunk->freeList;	/* 插入chunks freelist */
         (void) VALGRIND_MAKE_MEM_NOACCESS(Free, sizeof(void *));
         chunk->freeList = Free;
         chunk->lastref = squid_curtime;
     }
 }
 
-/* removes empty Chunks from pool */
+/* 从内存池中移除空块 */
 void MemPoolChunked::clean(time_t maxage)
 {
     MemChunk *chunk, *freechunk, *listTail;
     time_t age;
 
-    if (!this)
+    if (!this) // 内存池块不存在直接返回
         return;
-    if (!Chunks)
+    if (!Chunks) // 内存池块链表为空，直接返回
         return;
 
     flushMetersFull();
     convertFreeCacheToChunkFreeCache();
-    /* Now we have all chunks in this pool cleared up, all free items returned to their home */
-    /* We start now checking all chunks to see if we can release any */
-    /* We start from Chunks->next, so first chunk is not released */
-    /* Recreate nextFreeChunk list from scratch */
+    /*现在我们把内存池里所有的东西都清理干净了，所有的空闲项目都释放返回给系统 */
+    /*我们开始检查所有的内存块，看看是否可以释放 */
+    /*从Chunks->next开始, 第一个chunk不释放 */
+    /*从头开始重新构建nextFreeChunk链 */
 
     chunk = Chunks;
     while ((freechunk = chunk->next) != NULL) {
@@ -381,10 +374,10 @@ void MemPoolChunked::clean(time_t maxage)
         chunk = chunk->next;
     }
 
-    /* Recreate nextFreeChunk list from scratch */
-    /* Populate nextFreeChunk list in order of "most filled chunk first" */
-    /* in case of equal fill, put chunk in lower ram first */
-    /* First (create time) chunk is always on top, no matter how full */
+    /*从头重新创建nextfreechunk列表 */
+    /*按照使用量最多优先的顺序来重新建立nextFreeChunk链表*/
+    /*如果使用量相等，但块首地址小于，则放在低地址处*/
+    /*按创建时间来看第一个块总是在顶部，无论使用量是多少*/
 
     chunk = Chunks;
     nextFreeChunk = chunk;
@@ -392,7 +385,8 @@ void MemPoolChunked::clean(time_t maxage)
 
     while (chunk->next) {
         chunk->next->nextFreeChunk = NULL;
-        if (chunk->next->inuse_count < chunk_capacity) {
+        if (chunk->next->inuse_count < chunk_capacity) 
+        { // 使用的小于总容量
             listTail = nextFreeChunk;
             while (listTail->nextFreeChunk) {
                 if (chunk->next->inuse_count > listTail->nextFreeChunk->inuse_count)
@@ -407,7 +401,7 @@ void MemPoolChunked::clean(time_t maxage)
         }
         chunk = chunk->next;
     }
-    /* We started from 2nd chunk. If first chunk is full, remove it */
+    /*如果第一个块使用完了，就移除第一块，从第二个块开始*/
     if (nextFreeChunk->inuse_count == chunk_capacity)
         nextFreeChunk = nextFreeChunk->nextFreeChunk;
 
@@ -419,19 +413,17 @@ bool MemPoolChunked::idleTrigger(int shift) const
     return meter.idle.level > (chunk_capacity << shift);
 }
 
-/*
- * Update MemPoolStats struct for single pool
- */
-int MemPoolChunked::getStats(MemPoolStats * stats, int accumulate)
+/*给这个池单利更新 MemPoolStats结构体*/
+int MemPoolChunked::getStats(MemPoolStats* stats, int accumulate)
 {
     MemChunk *chunk;
     int chunks_free = 0;
     int chunks_partial = 0;
 
-    if (!accumulate)	/* need skip memset for GlobalStats accumulation */
+    if (!accumulate)	/*第一次 accumulate 应该是 true，之后需要跳过，统计是一个累计值*/
         memset(stats, 0, sizeof(MemPoolStats));
 
-    clean((time_t) 555555);	/* don't want to get chunks released before reporting */
+    clean((time_t) 555555);	/*在上报之前不释内存放块*/
 
     stats->pool = this;
     stats->label = objectType();
@@ -439,7 +431,7 @@ int MemPoolChunked::getStats(MemPoolStats * stats, int accumulate)
     stats->obj_size = obj_size;
     stats->chunk_capacity = chunk_capacity;
 
-    /* gather stats for each Chunk */
+    /*统计每一个块的使用和空闲情况*/
     chunk = Chunks;
     while (chunk) {
         if (chunk->inuse_count == 0)
@@ -462,3 +454,4 @@ int MemPoolChunked::getStats(MemPoolStats * stats, int accumulate)
 
     return meter.inuse.level;
 }
+

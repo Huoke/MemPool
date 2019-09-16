@@ -7,9 +7,8 @@
 #include <string.h>
 
 /*
- * XXX This is a boundary violation between lib and src.. would be good
- * if it could be solved otherwise, but left for now.
- */
+ 这是lib和src之间的边界冲突。如果能解决的话就好了，但现在就走。
+*/
 extern time_t squid_curtime;
 
 /* local data */
@@ -65,10 +64,7 @@ ssize_t MemPools::idleLimit() const
     return mem_idle_limit;
 }
 
-/* 修改所有内存池的 defaultIsChunked的默认值，包括在main函数前MemPools::GetInstance().setDefaultPoolChunking()设置的值
-  Change the default calue of defaultIsChunked to override all pools - including those used before main() starts where
- * MemPools::GetInstance().setDefaultPoolChunking() can be called.
- */
+/* 修改所有内存池的 defaultIsChunked的默认值，包括在main函数前MemPools::GetInstance().setDefaultPoolChunking()设置的值*/
 MemPools::MemPools() : pools(NULL), mem_idle_limit(2 * MB),
         poolCount (0), defaultIsChunked (USE_CHUNKEDMEMPOOLS && !RUNNING_ON_VALGRIND)
 {
@@ -152,7 +148,6 @@ MemPoolMeter::MemPoolMeter()
 }
 
 /*
- * Updates all pool counters, and recreates TheMeter totals from all pools
  * 更新所有池计数器，并从所有池中重新创建TheMeter总计
  */
 void MemPools::flushMeters()
@@ -379,8 +374,7 @@ MemImplementingAllocator::~MemImplementingAllocator()
     --MemPools::GetInstance().poolCount;
 }
 
-void
-MemAllocator::zeroOnPush(bool doIt)
+void MemAllocator::zeroOnPush(bool doIt)
 {
     doZeroOnPush = doIt;
 }
